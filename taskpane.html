@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Beam Resultant Moment Plot</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, Segoe UI, sans-serif;
+      margin: 0;
+      padding: 12px;
+      font-size: 13px;
+    }
+    h1 {
+      font-size: 15px;
+      margin: 0 0 8px 0;
+    }
+    p.hint {
+      color: #555;
+      margin: 0 0 12px 0;
+      line-height: 1.4;
+    }
+    button {
+      background: #0078d4;
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      margin-right: 6px;
+    }
+    button:disabled {
+      background: #aaa;
+      cursor: default;
+    }
+    select {
+      padding: 4px;
+      margin: 2px 0 10px 0;
+      width: 100%;
+    }
+    label {
+      font-weight: 600;
+      display: block;
+      margin-top: 6px;
+    }
+    #status {
+      margin-top: 10px;
+      color: #a4262c;
+      white-space: pre-wrap;
+    }
+    #plot {
+      width: 100%;
+      height: 440px;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Beam Resultant Moment Plot</h1>
+  <p class="hint">
+    Select a range (including headers) with X, Y, and Moment columns, one
+    row per point on the beam. Click "Read Selection", confirm which column
+    is which, then "Plot".
+  </p>
+
+  <button id="readBtn">Read Selection</button>
+  <button id="plotBtn" disabled>Plot</button>
+
+  <div id="mapping" style="display:none;">
+    <label for="xCol">X column</label>
+    <select id="xCol"></select>
+    <label for="yCol">Y column</label>
+    <select id="yCol"></select>
+    <label for="mCol">Resultant moment column</label>
+    <select id="mCol"></select>
+    <label for="plotType">Plot type</label>
+    <select id="plotType">
+      <option value="scatter3d">Points colored by moment</option>
+      <option value="lines3d">Line path along the beam, colored by moment</option>
+    </select>
+    <label for="colorMode">Color scale</label>
+    <select id="colorMode">
+      <option value="diverging">Diverging (blue=negative, red=positive, centered at 0)</option>
+      <option value="sequential">Sequential (Viridis, magnitude only)</option>
+    </select>
+    <label for="units">Moment units (for the axis label)</label>
+    <select id="units">
+      <option value="kNm">kNm</option>
+      <option value="kip-ft">kip-ft</option>
+      <option value="">(none)</option>
+    </select>
+  </div>
+
+  <div id="status"></div>
+  <div id="plot"></div>
+
+  <script>
+    let sheetData = []; // array of rows, each row an array of cell values
+    let headers = [];
+
+    Office.onReady(() => {
+      document.getElementById("readBtn").onclick = readSelection;
+      document.getElementById("plotBtn").onclick = drawPlot;
+    });
+
+    async function readSelection() {
+      const status = document.getElementById("status");
+      status.textContent = "";
+      try {
+        await Excel.run(async (context) => {
+          const range = context.workbook.getSelectedRange();
+          range.load("values");
+          await context.sync();
+
+          const values = range.values;
+          if (!values || values.length < 2) {
+            status.textContent = "Select a range with a header row plus at least one data row.";
+            return;
+          }
+
+          headers = values[0].map((h, i) => (h === "" || h === null ? `Col ${i + 1}` : String(h)));
+          sheetData = values.slice(1);
+
+          populateColumnSelectors(headers);
+          document.getElementById("mapping").style.display = "block";
+          document.getElementById("plotBtn").disabled = false;
+          status.textContent = `Loaded ${sheetData.length} rows, ${headers.length} columns.`;
+        });
+      } catch (err) {
+        status.textContent = "Error reading selection: " + err.message;
+      }
+    }
+
+    function populateColumnSelectors(headers) {
+      const xSel = document.getElementById("xCol");
+      const ySel = document.getElementById("yCol");
+      const mSel = document.getElementById("mCol");
+      [xSel, ySel, mSel].forEach((sel) => (sel.innerHTML = ""));
+
+      headers.forEach((h, i) => {
+        [xSel, ySel, mSel].forEach((sel) => {
+          const opt = document.createElement("option");
+          opt.value = i;
+          opt.textContent = h;
+          sel.appendChild(opt);
+        });
+      });
+
+      // sensible defaults: col0=X, col1=Y, col2=Moment if present
+      xSel.value = 0;
+      ySel.value = Math.min(1, headers.length - 1);
+      mSel.value = Math.min(2, headers.length - 1);
+    }
+
+    function drawPlot() {
+      const status = document.getElementById("status");
+      status.textContent = "";
+
+      const xi = parseInt(document.getElementById("xCol").value, 10);
+      const yi = parseInt(document.getElementById("yCol").value, 10);
+      const mi = parseInt(document.getElementById("mCol").value, 10);
+      const plotType = document.getElementById("plotType").value;
+      const colorMode = document.getElementById("colorMode").value;
+      const units = document.getElementById("units").value;
+
+      const x = [], y = [], m = [];
+      for (const row of sheetData) {
+        const xv = Number(row[xi]);
+        const yv = Number(row[yi]);
+        const mv = Number(row[mi]);
+        if (Number.isFinite(xv) && Number.isFinite(yv) && Number.isFinite(mv)) {
+          x.push(xv);
+          y.push(yv);
+          m.push(mv);
+        }
+      }
+
+      if (x.length === 0) {
+        status.textContent = "No numeric rows found for the selected X/Y/Moment columns.";
+        return;
+      }
+
+      let colorSettings;
+      const colorbarTitle = units ? `Moment (${units})` : "Moment";
+      if (colorMode === "diverging") {
+        const maxAbs = Math.max(...m.map((v) => Math.abs(v)), 1e-9);
+        colorSettings = {
+          color: m,
+          colorscale: "RdBu",
+          reversescale: true, // positive = red, negative = blue
+          cmin: -maxAbs,
+          cmax: maxAbs,
+          showscale: true,
+          colorbar: { title: colorbarTitle },
+        };
+      } else {
+        colorSettings = {
+          color: m,
+          colorscale: "Viridis",
+          showscale: true,
+          colorbar: { title: colorbarTitle },
+        };
+      }
+
+      let trace;
+      if (plotType === "lines3d") {
+        trace = {
+          type: "scatter3d",
+          mode: "lines+markers",
+          x, y, z: m,
+          line: { width: 4, color: m, colorscale: colorSettings.colorscale },
+          marker: Object.assign({ size: 4 }, colorSettings),
+        };
+      } else {
+        trace = {
+          type: "scatter3d",
+          mode: "markers",
+          x, y, z: m,
+          marker: Object.assign({ size: 5 }, colorSettings),
+        };
+      }
+
+      const layout = {
+        margin: { l: 0, r: 0, b: 0, t: 20 },
+        scene: {
+          xaxis: { title: headers[xi] },
+          yaxis: { title: headers[yi] },
+          zaxis: { title: colorbarTitle },
+          aspectmode: "data",
+          camera: { eye: { x: 1.4, y: 1.4, z: 1.4 } },
+        },
+      };
+
+      Plotly.newPlot("plot", [trace], layout, { responsive: true });
+    }
+  </script>
+</body>
+</html>
