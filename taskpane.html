@@ -209,7 +209,7 @@
         trace = {
           type: "scatter3d",
           mode: "lines+markers",
-          x, y, z: m,
+          x: x, y: m, z: y,
           line: { width: 4, color: m, colorscale: colorSettings.colorscale },
           marker: Object.assign({ size: 4 }, colorSettings),
         };
@@ -217,7 +217,7 @@
         trace = {
           type: "scatter3d",
           mode: "markers",
-          x, y, z: m,
+          x: x, y: m, z: y,
           marker: Object.assign({ size: 5 }, colorSettings),
         };
       }
@@ -226,12 +226,11 @@
         margin: { l: 0, r: 0, b: 0, t: 20 },
         scene: {
           xaxis: { title: headers[xi] },
-          yaxis: { title: headers[yi] },
-          zaxis: { title: colorbarTitle },
+          yaxis: { title: colorbarTitle },
+          zaxis: { title: headers[yi] },
           aspectmode: "data",
           camera: {
-            eye: { x: 0, y: 0, z: 2.2 },
-            up: { x: 0, y: 1, z: 0 },
+            eye: { x: 0, y: 2.2, z: 0 },
           },
         },
       };
