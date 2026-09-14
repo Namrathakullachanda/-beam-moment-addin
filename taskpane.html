@@ -229,7 +229,10 @@
           yaxis: { title: headers[yi] },
           zaxis: { title: colorbarTitle },
           aspectmode: "data",
-          camera: { eye: { x: 1.4, y: 1.4, z: 1.4 } },
+          camera: {
+            eye: { x: 0, y: 0, z: 2.2 },
+            up: { x: 0, y: 1, z: 0 },
+          },
         },
       };
 
